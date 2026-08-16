@@ -1,0 +1,15 @@
+definition_version: 2
+entities:
+  streamlit_app:
+    type: streamlit
+    identifier:
+      name: EV_INTELLIGENCE_CHAT
+      schema: AI
+      database: EV_INTELLIGENCE
+    main_file: streamlit_app.py
+    query_warehouse: EV_WH_XS
+    title: "EV Intelligence Chat"
+    artifacts:
+      - pyproject.toml
+      - streamlit_app.py
+      - .streamlit/config.toml
