@@ -1,0 +1,35 @@
+-- Gold-layer aggregate dynamic tables for EV adoption and range analytics
+-- Co-authored with CoCo
+
+USE ROLE ACCOUNTADMIN;
+USE WAREHOUSE EV_WH_XS;
+
+-- Adoption counts by county, model year, and EV type (WA registrations only)
+CREATE OR REPLACE DYNAMIC TABLE EV_INTELLIGENCE.ANALYTICS.EV_ADOPTION_BY_COUNTY
+  TARGET_LAG = '1 hour'
+  WAREHOUSE  = EV_WH_XS
+AS
+SELECT
+    COUNTY,
+    MODEL_YEAR,
+    EV_TYPE,
+    COUNT(*) AS VEHICLE_COUNT
+FROM EV_INTELLIGENCE.ANALYTICS.EV_VEHICLES
+WHERE IS_WA_REGISTRATION = TRUE
+GROUP BY COUNTY, MODEL_YEAR, EV_TYPE;
+
+-- Average and median range by make and EV type, with researched vs unresearched counts
+CREATE OR REPLACE DYNAMIC TABLE EV_INTELLIGENCE.ANALYTICS.EV_RANGE_BY_MAKE
+  TARGET_LAG = '1 hour'
+  WAREHOUSE  = EV_WH_XS
+AS
+SELECT
+    MAKE,
+    EV_TYPE,
+    AVG(ELECTRIC_RANGE)                      AS AVG_RANGE,
+    MEDIAN(ELECTRIC_RANGE)                   AS MEDIAN_RANGE,
+    COUNT(*)                                 AS TOTAL_VEHICLES,
+    COUNT(ELECTRIC_RANGE)                    AS RESEARCHED_RANGE_COUNT,
+    COUNT(*) - COUNT(ELECTRIC_RANGE)         AS UNRESEARCHED_RANGE_COUNT
+FROM EV_INTELLIGENCE.ANALYTICS.EV_VEHICLES
+GROUP BY MAKE, EV_TYPE;
