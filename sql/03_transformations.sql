@@ -38,6 +38,8 @@ SELECT
     TRY_CAST(r.value[20]::STRING AS INTEGER)    AS LEGISLATIVE_DISTRICT,
     r.value[21]::STRING                         AS DOL_VEHICLE_ID,
     TRY_TO_GEOGRAPHY(r.value[22]::STRING)       AS VEHICLE_LOCATION,
+    ST_X(TRY_TO_GEOGRAPHY(r.value[22]::STRING))  AS LONGITUDE,
+    ST_Y(TRY_TO_GEOGRAPHY(r.value[22]::STRING))  AS LATITUDE,
     r.value[23]::STRING                         AS ELECTRIC_UTILITY,
     r.value[24]::STRING                         AS CENSUS_TRACT_2020,
     (r.value[11]::STRING = 'WA')                AS IS_WA_REGISTRATION

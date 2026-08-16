@@ -1,4 +1,4 @@
--- Create Iceberg table from EV_VEHICLES with GEOGRAPHY converted to GeoJSON VARCHAR
+-- Create Iceberg table from EV_VEHICLES with numeric longitude/latitude columns
 -- Co-authored with CoCo
 USE ROLE ACCOUNTADMIN;
 USE WAREHOUSE EV_WH_XS;
@@ -31,7 +31,8 @@ SELECT
     ELECTRIC_RANGE,
     LEGISLATIVE_DISTRICT,
     DOL_VEHICLE_ID,
-    ST_ASWKT(VEHICLE_LOCATION)::VARCHAR AS VEHICLE_LOCATION,
+    LONGITUDE,
+    LATITUDE,
     ELECTRIC_UTILITY,
     CENSUS_TRACT_2020,
     IS_WA_REGISTRATION
