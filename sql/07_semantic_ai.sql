@@ -1,5 +1,3 @@
--- Semantic view for EV intelligence analytics combining vehicle, adoption, and range data
--- Co-authored with CoCo
 CREATE OR REPLACE SEMANTIC VIEW EV_INTELLIGENCE.AI.EV_SEMANTIC
   TABLES (
     EV_INTELLIGENCE.ANALYTICS.EV_VEHICLES
@@ -11,7 +9,10 @@ CREATE OR REPLACE SEMANTIC VIEW EV_INTELLIGENCE.AI.EV_SEMANTIC
 
     EV_INTELLIGENCE.ANALYTICS.EV_RANGE_BY_MAKE
       UNIQUE (MAKE, EV_TYPE)
-      COMMENT = 'The table contains records summarizing electric vehicle range statistics aggregated by manufacturer and vehicle type. Each record includes average and median range figures, along with counts of total vehicles and the research status of range data.'
+      COMMENT = 'The table contains records summarizing electric vehicle range statistics aggregated by manufacturer and vehicle type. Each record includes average and median range figures, along with counts of total vehicles and the research status of range data.',
+
+    EV_INTELLIGENCE.ANALYTICS.EV_DENSITY_BY_ZIP
+      COMMENT = 'The table contains one record per Washington State zip code with the geographic coordinates of that zip code and the number of electric vehicles registered there. Coordinates are zip code centroids rather than individual vehicle locations, so this table describes registration density by area and must not be presented as the precise location of any vehicle. Use this table for map and geographic distribution questions.'
   )
   RELATIONSHIPS (
     EV_VEHICLES_TO_EV_ADOPTION_BY_COUNTY AS EV_VEHICLES (COUNTY, MODEL_YEAR, EV_TYPE)
@@ -35,10 +36,21 @@ CREATE OR REPLACE SEMANTIC VIEW EV_INTELLIGENCE.AI.EV_SEMANTIC
 
     EV_RANGE_BY_MAKE.MEDIAN_RANGE AS MEDIAN_RANGE
       COMMENT = 'The median electric vehicle range in miles across a given make.'
-      SAMPLE_VALUES ('87.000', '58.000', '84.000')
+      SAMPLE_VALUES ('87.000', '58.000', '84.000'),
+
+    EV_DENSITY_BY_ZIP.ZIP_VEHICLE_COUNT AS VEHICLE_COUNT
+      COMMENT = 'The number of electric vehicles registered in a zip code.'
+      SAMPLE_VALUES ('1', '47', '612'),
+
+    EV_DENSITY_BY_ZIP.ZIP_BEV_COUNT AS BEV_COUNT
+      COMMENT = 'The number of battery electric vehicles registered in a zip code.'
+      SAMPLE_VALUES ('1', '35', '498'),
+
+    EV_DENSITY_BY_ZIP.ZIP_PHEV_COUNT AS PHEV_COUNT
+      COMMENT = 'The number of plug-in hybrid electric vehicles registered in a zip code.'
+      SAMPLE_VALUES ('0', '12', '114')
   )
   DIMENSIONS (
-    -- EV_VEHICLES dimensions
     EV_VEHICLES.CAFV_ELIGIBILITY AS CAFV_ELIGIBILITY
       COMMENT = 'Clean Alternative Fuel Vehicle tax exemption status under Washington RCW 82.08.809. ''Eligibility unknown as battery range has not been researched'' corresponds exactly to vehicles with NULL electric range.'
       SAMPLE_VALUES ('Clean Alternative Fuel Vehicle Eligible', 'Not eligible due to low battery range', 'Eligibility unknown as battery range has not been researched'),
@@ -92,7 +104,6 @@ CREATE OR REPLACE SEMANTIC VIEW EV_INTELLIGENCE.AI.EV_SEMANTIC
       COMMENT = 'The postal zip code associated with the vehicle''s registered location.'
       SAMPLE_VALUES ('98597', '98367', '75068'),
 
-    -- EV_ADOPTION_BY_COUNTY dimensions
     EV_ADOPTION_BY_COUNTY.COUNTY AS COUNTY
       COMMENT = 'The name of the county associated with electric vehicle adoption data.'
       WITH CORTEX SEARCH SERVICE EV_INTELLIGENCE.AI._CORTEX_ANALYST_EV_ADOPTION_BY_COUNTY_COUNTY_C329084D_2421_41E7_8B82_6C69B5B3431B
@@ -110,7 +121,6 @@ CREATE OR REPLACE SEMANTIC VIEW EV_INTELLIGENCE.AI.EV_SEMANTIC
       COMMENT = 'The total number of electric vehicles recorded per county.'
       SAMPLE_VALUES ('1', '4', '919'),
 
-    -- EV_RANGE_BY_MAKE dimensions
     EV_RANGE_BY_MAKE.EV_TYPE AS EV_TYPE
       COMMENT = 'The type of electric vehicle.'
       SAMPLE_VALUES ('Battery Electric Vehicle (BEV)', 'Plug-in Hybrid Electric Vehicle (PHEV)'),
@@ -130,10 +140,30 @@ CREATE OR REPLACE SEMANTIC VIEW EV_INTELLIGENCE.AI.EV_SEMANTIC
 
     EV_RANGE_BY_MAKE.UNRESEARCHED_RANGE_COUNT AS UNRESEARCHED_RANGE_COUNT
       COMMENT = 'The number of electric vehicle range entries that have not yet been researched for a given make.'
-      SAMPLE_VALUES ('329', '334', '0')
+      SAMPLE_VALUES ('329', '334', '0'),
+
+    EV_DENSITY_BY_ZIP.DENSITY_ZIP_CODE AS ZIP_CODE
+      COMMENT = 'The Washington State zip code the registration counts apply to.'
+      SAMPLE_VALUES ('98052', '98144', '99301'),
+
+    EV_DENSITY_BY_ZIP.DENSITY_COUNTY AS COUNTY
+      COMMENT = 'The county containing the zip code.'
+      SAMPLE_VALUES ('King', 'Snohomish', 'Spokane'),
+
+    EV_DENSITY_BY_ZIP.DENSITY_CITY AS CITY
+      COMMENT = 'The city associated with the zip code.'
+      SAMPLE_VALUES ('Seattle', 'Redmond', 'Tacoma'),
+
+    EV_DENSITY_BY_ZIP.ZIP_LATITUDE AS LATITUDE
+      COMMENT = 'The latitude of the zip code centroid. Use this together with ZIP_LONGITUDE when the question asks for a map or geographic distribution.'
+      SAMPLE_VALUES ('47.79802', '47.09583', '47.06512'),
+
+    EV_DENSITY_BY_ZIP.ZIP_LONGITUDE AS LONGITUDE
+      COMMENT = 'The longitude of the zip code centroid. Use this together with ZIP_LATITUDE when the question asks for a map or geographic distribution.'
+      SAMPLE_VALUES ('-117.18147', '-120.26186', '-122.31768')
   )
-  AI_SQL_GENERATION 'Filter to IS_WA_REGISTRATION = TRUE for state, county, or city level analysis unless the user explicitly asks about out-of-state registrations. Round numeric averages to one decimal place. When calculating a percentage, multiply by 100 and round to one decimal place so the result reads as a percentage rather than a fraction.'
-  AI_QUESTION_CATEGORIZATION 'When a question involves electric range averages, note in the answer that vehicles whose range has not been researched are excluded from the calculation.'
+  AI_SQL_GENERATION 'Filter to IS_WA_REGISTRATION = TRUE for state, county, or city level analysis unless the user explicitly asks about out-of-state registrations. Round numeric averages to one decimal place. When calculating a percentage, multiply by 100 and round to one decimal place so the result reads as a percentage rather than a fraction. For any question asking for a map, geographic distribution, or where vehicles are concentrated, query EV_DENSITY_BY_ZIP and return ZIP_LATITUDE and ZIP_LONGITUDE alongside the count.'
+  AI_QUESTION_CATEGORIZATION 'When a question involves electric range averages, note in the answer that vehicles whose range has not been researched are excluded from the calculation. When a question involves mapping or geographic distribution, note that coordinates are zip code centroids representing registration density rather than the actual location of individual vehicles.'
   AI_VERIFIED_QUERIES (
     "For battery electric vehicle makes ranked by fleet size, what is the average range and how many vehicles have researched vs. unresearched range data?" AS (
       QUESTION 'For battery electric vehicle makes ranked by fleet size, what is the average range and how many vehicles have researched vs. unresearched range data?'
@@ -275,6 +305,37 @@ FROM
 WHERE
   IS_WA_REGISTRATION
 GROUP BY
-  CAFV_ELIGIBILITY')
+  CAFV_ELIGIBILITY'),
+
+    "Show me EV registration density on a map" AS (
+      QUESTION 'Show me EV registration density on a map'
+      VERIFIED_AT 1786920800
+      VERIFIED_BY 'Josh Hickok'
+      ONBOARDING_QUESTION false
+      SQL 'SELECT
+  DENSITY_ZIP_CODE,
+  ZIP_LATITUDE,
+  ZIP_LONGITUDE,
+  ZIP_VEHICLE_COUNT
+FROM
+  ev_density_by_zip
+ORDER BY
+  ZIP_VEHICLE_COUNT DESC'),
+
+    "Where are electric vehicles concentrated in Washington?" AS (
+      QUESTION 'Where are electric vehicles concentrated in Washington?'
+      VERIFIED_AT 1786920810
+      VERIFIED_BY 'Josh Hickok'
+      ONBOARDING_QUESTION false
+      SQL 'SELECT
+  DENSITY_ZIP_CODE,
+  DENSITY_CITY,
+  ZIP_LATITUDE,
+  ZIP_LONGITUDE,
+  ZIP_VEHICLE_COUNT
+FROM
+  ev_density_by_zip
+ORDER BY
+  ZIP_VEHICLE_COUNT DESC')
   )
-  WITH EXTENSION (CA = '{"tables":[{"name":"EV_VEHICLES","dimensions":[{"name":"CAFV_ELIGIBILITY"},{"name":"CITY"},{"name":"COUNTY"},{"name":"ELECTRIC_RANGE"},{"name":"ELECTRIC_UTILITY"},{"name":"EV_TYPE"},{"name":"IS_WA_REGISTRATION"},{"name":"LEGISLATIVE_DISTRICT"},{"name":"MAKE"},{"name":"MODEL"},{"name":"MODEL_YEAR"},{"name":"ZIP_CODE"}],"facts":[{"name":"LATITUDE"},{"name":"LONGITUDE"}]},{"name":"EV_ADOPTION_BY_COUNTY","dimensions":[{"name":"COUNTY"},{"name":"EV_TYPE"},{"name":"MODEL_YEAR"},{"name":"VEHICLE_COUNT"}]},{"name":"EV_RANGE_BY_MAKE","dimensions":[{"name":"EV_TYPE"},{"name":"MAKE"},{"name":"RESEARCHED_RANGE_COUNT"},{"name":"TOTAL_VEHICLES"},{"name":"UNRESEARCHED_RANGE_COUNT"}],"facts":[{"name":"AVG_RANGE"},{"name":"MEDIAN_RANGE"}]}],"relationships":[{"name":"EV_VEHICLES_TO_EV_ADOPTION_BY_COUNTY","join_type":"inner"},{"name":"EV_VEHICLES_TO_EV_RANGE_BY_MAKE","join_type":"inner"}]}');
+  WITH EXTENSION (CA = '{"tables":[{"name":"EV_VEHICLES","dimensions":[{"name":"CAFV_ELIGIBILITY"},{"name":"CITY"},{"name":"COUNTY"},{"name":"ELECTRIC_RANGE"},{"name":"ELECTRIC_UTILITY"},{"name":"EV_TYPE"},{"name":"IS_WA_REGISTRATION"},{"name":"LEGISLATIVE_DISTRICT"},{"name":"MAKE"},{"name":"MODEL"},{"name":"MODEL_YEAR"},{"name":"ZIP_CODE"}],"facts":[{"name":"LATITUDE"},{"name":"LONGITUDE"}]},{"name":"EV_ADOPTION_BY_COUNTY","dimensions":[{"name":"COUNTY"},{"name":"EV_TYPE"},{"name":"MODEL_YEAR"},{"name":"VEHICLE_COUNT"}]},{"name":"EV_RANGE_BY_MAKE","dimensions":[{"name":"EV_TYPE"},{"name":"MAKE"},{"name":"RESEARCHED_RANGE_COUNT"},{"name":"TOTAL_VEHICLES"},{"name":"UNRESEARCHED_RANGE_COUNT"}],"facts":[{"name":"AVG_RANGE"},{"name":"MEDIAN_RANGE"}]},{"name":"EV_DENSITY_BY_ZIP","dimensions":[{"name":"DENSITY_ZIP_CODE"},{"name":"DENSITY_COUNTY"},{"name":"DENSITY_CITY"},{"name":"ZIP_LATITUDE"},{"name":"ZIP_LONGITUDE"}],"facts":[{"name":"ZIP_VEHICLE_COUNT"},{"name":"ZIP_BEV_COUNT"},{"name":"ZIP_PHEV_COUNT"}]}],"relationships":[{"name":"EV_VEHICLES_TO_EV_ADOPTION_BY_COUNTY","join_type":"inner"},{"name":"EV_VEHICLES_TO_EV_RANGE_BY_MAKE","join_type":"inner"}]}');

@@ -3,13 +3,19 @@ entities:
   streamlit_app:
     type: streamlit
     identifier:
-      name: EV_INTELLIGENCE_CHAT
-      schema: AI
       database: EV_INTELLIGENCE
-    main_file: streamlit_app.py
+      schema: AI
+      name: EV_INTELLIGENCE_CHAT
+    title: EV Intelligence Chat
     query_warehouse: EV_WH_XS
-    title: "EV Intelligence Chat"
+    main_file: streamlit_app.py
     artifacts:
       - pyproject.toml
       - streamlit_app.py
       - .streamlit/config.toml
+    compute_pool: SYSTEM_COMPUTE_POOL_CPU
+    run_mode: SpcsOnly
+    execute_as: OWNER
+    sharing:
+      - role: EV_MCP_ROLE
+        with_grant_option: true
