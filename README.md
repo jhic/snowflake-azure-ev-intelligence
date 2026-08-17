@@ -162,7 +162,3 @@ Authorize the connection, then add the agent tool and publish to Microsoft Teams
 The chat interface is deployed from a Snowsight workspace (`streamlit/ev_intelligence_chat/`). Deploy to `EV_INTELLIGENCE.AI` with `EV_WH_XS` as the query warehouse, owned by `EV_MCP_ROLE`.
 
 Apps deployed from workspaces run on a container runtime, where the `_snowflake` module is unavailable. The app detects its runtime and falls back to reading the session token from `/snowflake/session/token` and calling the REST API directly.
-
-## Validation
-
-`python/validate_pipeline.py` is a phase-aware acceptance harness. Expected values are profiled from the source file: 22,183 total rows, 22,120 Washington registrations, 63 out-of-state, 38 Washington counties, 8,155 battery electric vehicles with unresearched range.
