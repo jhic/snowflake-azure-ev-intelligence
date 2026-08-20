@@ -1,164 +1,99 @@
-# snowflake-azure-ev-intelligence
-Reference architecture demonstrating Azure ingestion, Snowflake-managed Iceberg interoperability, Cortex AI, governance, and Microsoft co-sell value using EV data.
+# Snowflake + Azure: EV Intelligence
 
-# Setup
+A reference architecture for Snowflake on Azure, built around Washington State's public electric vehicle registration data.
 
-End-to-end setup for the Snowflake + Azure EV Intelligence reference architecture.
+In this scenario Contoso Logistics has a fleet electrification policy requiring a 200 mile minimum range. We drop in to the data to see how many vehicles meet that policy.
 
-Some steps cannot be scripted: Azure IAM role assignments require a Snowflake-generated service principal that does not exist until the Snowflake object is created, and the OAuth redirect URI is not known until the Copilot Studio connector is created. Those manual steps are called out below.
+## What it does
 
-## Prerequisites
+Data lands in Azure Data Lake Storage, causing event Grid to notify Snowflake. Snowpipe ingests it, a stream and task explode and upsert it, and a dynamic table refreshes the analytics layer incrementally. The result is written to a Snowflake-managed Iceberg table sitting in the same storage account, which Microsoft Fabric reads through a OneLake shortcut and Power BI queries through Direct Lake without importing a copy.
 
-- Snowflake trial on Azure (East US 2 or West US 2), with ACCOUNTADMIN
-- Azure subscription with permission to create storage accounts and assign IAM roles
-- Microsoft Fabric workspace (any SKU, including trial) for the OneLake shortcut
-- Microsoft Copilot Studio access for the Teams integration
-- `ElectricVehiclePopulationData.json` from the exercise
+In parallel, a semantic view over the same tables powers Cortex Analyst, which is one of three tools on a Cortex Agent alongside Cortex Search over owner's manuals and a photo lookup. The agent is published through a Snowflake managed MCP server, authenticated over OAuth, and consumed by a Microsoft Copilot Studio agent that answers questions in Teams.
 
-## 1. Azure storage
-
-Create an ADLS Gen2 storage account in the same region as the Snowflake account, with hierarchical namespace enabled.
-
-Create two containers:
-
-- `landing` — source data
-- `iceberg` — external volume base for Snowflake-managed Iceberg tables
-
-Upload `ElectricVehiclePopulationData.json` to `landing`.
-
-## 2. Foundation
-
-Run `sql/01_foundation.sql`. Creates the database, the `RAW` / `ANALYTICS` / `AI` / `ADMIN` schemas, and the warehouse.
-
-## 3. Ingestion
-
-Run `sql/02_ingestion.sql`. Creates the storage integration, external stage, file format, and raw table, then loads the dataset.
-
-**Manual step — Azure consent and IAM.** After the storage integration is created, retrieve the consent URL and service principal:
-
-```sql
-DESC STORAGE INTEGRATION AZINT_EV_DEMO;
+```
+ADLS Gen2 ──► Event Grid ──► Snowpipe ──► RAW.EV_RAW
+                                              │ stream
+                                              ▼
+                                   TASK: FLATTEN + MERGE
+                                              │
+                                              ▼
+                                       RAW.EV_RECORDS
+                                              │
+                                              ▼
+                              ANALYTICS.EV_VEHICLES (dynamic table)
+                                              │
+                    ┌─────────────────────────┼─────────────────────────┐
+                    ▼                         ▼                         ▼
+              gold aggregates          Iceberg on ADLS            AI.EV_SEMANTIC
+                    │                         │                         │
+                    ▼                         ▼                         ▼
+             Streamlit in SiS        OneLake shortcut            AI.EV_AGENT
+                                              │                         │
+                                              ▼                         ▼
+                                   Power BI Direct Lake            AI.EV_MCP
+                                                                        │
+                                                                        ▼
+                                                          Copilot Studio ──► Teams
 ```
 
-Open `AZURE_CONSENT_URL` in a browser and grant consent. Then, in the Azure portal, on the storage account, assign the application named in `AZURE_MULTI_TENANT_APP_NAME`:
+Snowflake publishes a managed MCP server and Microsoft's Work IQ exposes M365 context through an MCP gateway, so Copilot Studio composes the two and the agent can read an email thread and answer from registration data in the same turn.
 
-- **Storage Blob Data Reader** — required for reading the `landing` container
-- **Storage Blob Data Contributor** — required later for the `iceberg` container
+## Data problems
 
-Role assignments take several minutes to propagate. A `403 AuthorizationPermissionMismatch` on first use usually means propagation is still in progress.
+The source is a Socrata export of Washington's EV registration file. 22,183 vehicles, 22,120 of them registered in Washington.
 
-The storage integration uses `CREATE ... IF NOT EXISTS` deliberately. Replacing it mints a new service principal and orphans the IAM role assignments above.
+`Electric Range` is zero for 8,155 records which does not mean the range is zero. Instead, it means the state did not research the range for that registration. All of those records is a battery electric vehicle: 47.8% of all BEVs in the file, and 0% of plug-in hybrids.
 
-## 4. Transformations and gold tables
+The missing data is not randomly distributed. It falls entirely on the vehicle class the 200-mile policy is actually about. Treating those zeros as real values drags the BEV average down against PHEVs, which have no phantom zeros to drag them. Tesla's average range reads 240 miles when the sentinel values are excluded and roughly 114 when they are not.
 
-Run `sql/03_transformations.sql` then `sql/04_gold.sql`. Creates the silver dynamic table and the three aggregate tables.
+ANALYTICS.EV_VEHICLES converts those zeros to NULL once, so Power BI, Cortex Analyst, and the Teams agent all report the same figure rather than three engines each deciding what a zero means.
 
-## 5. Iceberg and Fabric
+## Data curiosities
 
-Run `sql/05_iceberg.sql`. Creates the external volume and the Snowflake-managed Iceberg table.
+- `Base MSRP` is 97% zeros and was dropped from the dataset. Not used here.
+- `Vehicle Location` is a zip code centroid in WKT, not an actual vehicle position. Density maps are density by area.
+- 63 registrations are out of state. 17 of those are in the unresearched-range bucket, which is why the statewide count is 8,138 and the full-file count is 8,155.
+- The Iceberg table defaults to v2, which has no geospatial type, so VEHICLE_LOCATION is serialized to WKT with latitude and longitude materialized alongside it, while ANALYTICS.EV_VEHICLES keeps the native GEOGRAPHY. Iceberg v3 added GEOGRAPHY, but Power BI Direct Lake can't consume a geospatial column either way, so the numeric pair is required regardless.
 
-Verify the external volume:
+## Layout
 
-```sql
-SELECT SYSTEM$VERIFY_EXTERNAL_VOLUME('EXVOL_EV_ICEBERG');
+```
+sql/
+  01_foundation.sql        database, schemas, warehouse
+  02_ingestion.sql         storage integration, stage, raw table, bulk load
+  03_transformations.sql   silver dynamic table
+  04_gold.sql              county, make, and zip aggregates
+  05_iceberg.sql           external volume, Snowflake-managed Iceberg table
+  06_governance.sql        role, VIN masking policy, secure share
+  07_semantic_ai.sql       semantic view
+  08_unstructured.sql      manual parsing, chunking, Cortex Search, photo catalog
+  09_mcp.sql               MCP server, OAuth security integration
+  10_snowpipe.sql          notification integration, pipe, stream, task
+  admin/                   optional and exploratory scripts
+streamlit/                 Streamlit in Snowflake chat interface
+powerbi/                   semantic model definition (TMDL)
 ```
 
-**Manual step — Fabric shortcut.** Get the physical path of the Iceberg table:
+Setup instructions are in [SETUP.md](SETUP.md).
 
-```sql
-SELECT SYSTEM$GET_ICEBERG_TABLE_INFORMATION('EV_INTELLIGENCE.ANALYTICS.EV_VEHICLES_ICEBERG');
-```
+## Technology choices
 
-Snowflake appends a unique suffix to `BASE_LOCATION`, so the folder name will not match the table name exactly. In Fabric, create a workspace identity, grant it **Storage Blob Data Reader** on the storage account, then create a OneLake shortcut in a non-schema-enabled lakehouse pointing at that exact folder.
+**Snowpipe over Azure Data Factory.** Event Grid already emits blob events, so ADF would add a second orchestration plane and a second bill to do what a notification integration does natively.
 
-Rebuilding the Iceberg table generates a new suffix and orphans the shortcut. If the table is rebuilt, delete and recreate the shortcut.
+**Streams and tasks alongside dynamic tables, not instead of them.** COPY transformations do not support `FLATTEN`, so the pipe cannot explode the Socrata array at ingest, and the task handles the flatten and the MERGE while the dynamic table covers everything expressible declaratively above it. Landing one row per vehicle rather than one row per file is also what makes the dynamic table's incremental refresh meaningful, since incremental refresh operates on row-level deltas and a second file would otherwise change 100% of the base table.
 
-## 6. Governance
+**Snowflake-managed Iceberg over externally managed.** Snowflake owns the writer and the metadata, which keeps DML and dynamic table refreshes working normally, and the files still land in the customer's own storage account where Fabric can read them.
 
-Run `sql/06_governance.sql`. Creates `EV_MCP_ROLE`, the VIN masking policy, and the secure share.
+**OneLake shortcut over a catalog connection.** The shortcut is Microsoft's documented pattern and works today, at the cost of binding to a storage path rather than a catalog entry.
 
-Re-running `sql/03_transformations.sql` detaches the masking policy; re-run this file afterward.
+## Constraints
 
-## 7. Semantic view
+**Snowflake policies do not federate to OneLake.** The Iceberg Parquet files contain raw values, so masking and row access policies are enforced by Snowflake while OneLake security is enforced by Fabric.
 
-Run `sql/07_semantic_ai.sql`. Creates the semantic view that powers Cortex Analyst, the agent, and the MCP server.
+**Snowflake does not clean up orphaned Iceberg folders.** Managed Iceberg writes to the customer's storage account, so lifecycle and cost for anything left behind by a rebuild are theirs.
 
-## 8. Unstructured layer
 
-Upload owner's manual PDFs to `RAW.MANUALS` and vehicle photos to `RAW.PHOTOS`, then run `sql/08_unstructured.sql`.
+## Future enhancements
+**Write-back for the unresearched range records.** The pipeline discloses the 8,155 records with no researched range but has no way to resolve them, so a write-back path would let analysts record and audit those decisions.
 
-Manual PDFs are not committed to this repository. Source them from the manufacturers' sites; `scripts/fetch_manuals.py` documents the URLs used.
-
-`PARSE_DOCUMENT` in `LAYOUT` mode is the expensive step in this pipeline. On an X-Small warehouse, eight manuals take well over an hour. Sizing the warehouse up helps but not proportionally, because throughput is bounded by the document AI service rather than by warehouse compute.
-
-Both stages use `SNOWFLAKE_SSE` encryption. This is required for `GET_PRESIGNED_URL`, which the photo tool depends on.
-
-## 9. Agent
-
-The Cortex Agent is created through Snowsight (**AI & ML** » **Agents**) rather than SQL. Create `EV_AGENT` in `EV_INTELLIGENCE.AI` with three tools:
-
-| Tool | Type | Target |
-|---|---|---|
-| `ev_registration_analytics` | Cortex Analyst | `AI.EV_SEMANTIC` |
-| `ev_manual_lookup` | Cortex Search | `AI.EV_MANUAL_SEARCH` |
-| `get_vehicle_photo` | Custom (table function) | `AI.GET_VEHICLE_PHOTO` |
-
-Tool descriptions determine routing. Each description should state both what the tool covers and what it does not, or the agent will reach for the wrong one on ambiguous questions.
-
-Publish the agent. The MCP server serves the published version, not the draft.
-
-## 10. MCP server and OAuth
-
-Run `sql/09_mcp.sql`. Creates the MCP server and the OAuth security integration.
-
-Set the user defaults the MCP session depends on:
-
-```sql
-ALTER USER <your_user> SET DEFAULT_WAREHOUSE = 'EV_WH_XS';
-ALTER USER <your_user> SET DEFAULT_ROLE = 'EV_MCP_ROLE';
-```
-
-Cortex Agents determines session permissions from the querying user's default role. Both values must be set or the MCP session fails.
-
-Retrieve the OAuth endpoints and client credentials:
-
-```sql
-DESC SECURITY INTEGRATION EV_MCP_OAUTH;
-SELECT SYSTEM$SHOW_OAUTH_CLIENT_SECRETS('EV_MCP_OAUTH');
-```
-
-Use the `OAUTH_AUTHORIZATION_ENDPOINT` and `OAUTH_TOKEN_ENDPOINT` values from `DESC`. These use the account-specific hostname, which may differ from the organization-prefixed URL shown elsewhere in Snowsight.
-
-## 11. Copilot Studio
-
-Create a Model Context Protocol server connector:
-
-| Field | Value |
-|---|---|
-| Server URL | `https://<account_host>/api/v2/databases/EV_INTELLIGENCE/schemas/AI/mcp-servers/EV_MCP` |
-| Authentication | OAuth 2.0, Manual |
-| Client ID / secret | from `SYSTEM$SHOW_OAUTH_CLIENT_SECRETS` |
-| Authorization URL | `OAUTH_AUTHORIZATION_ENDPOINT` from `DESC` |
-| Token URL template | `OAUTH_TOKEN_ENDPOINT` from `DESC` |
-| Refresh URL | same as token URL |
-| Scopes | `session:role:EV_MCP_ROLE refresh_token` |
-
-**Manual step — redirect URI.** Copilot Studio generates the redirect URL only after the connector is created. Copy it and update Snowflake:
-
-```sql
-ALTER SECURITY INTEGRATION EV_MCP_OAUTH SET OAUTH_REDIRECT_URI = '<generated url>';
-```
-
-Use `ALTER`, not `CREATE OR REPLACE`. Replacing the integration issues new client credentials and invalidates the ones already stored in the connector.
-
-The redirect URI must match exactly, including URL-encoded characters. A mismatch fails at the authorization step without indicating the cause.
-
-Snowflake blocks `ACCOUNTADMIN`, `ORGADMIN`, and `SECURITYADMIN` over OAuth by default, which is why the scope requests a purpose-built role.
-
-Authorize the connection, then add the agent tool and publish to Microsoft Teams.
-
-## 12. Streamlit
-
-The chat interface is deployed from a Snowsight workspace (`streamlit/ev_intelligence_chat/`). Deploy to `EV_INTELLIGENCE.AI` with `EV_WH_XS` as the query warehouse, owned by `EV_MCP_ROLE`.
-
-Apps deployed from workspaces run on a container runtime, where the `_snowflake` module is unavailable. The app detects its runtime and falls back to reading the session token from `/snowflake/session/token` and calling the REST API directly.
+**Forecasting.** Registrations by county and model year are a time series, so projecting adoption forward would let the demo inform siting decisions rather than only describe past adoption.
