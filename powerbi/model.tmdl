@@ -1,0 +1,340 @@
+createOrReplace
+
+	model Model
+		culture: en-US
+		defaultPowerBIDataSourceVersion: powerBI_V3
+		sourceQueryCulture: en-US
+		dataAccessOptions
+			legacyRedirects
+			returnErrorValuesAsNull
+
+		table ev_vehicles
+			lineageTag: 341ab3b4-165a-489e-a044-2416c5cecef3
+			sourceLineageTag: [dbo].[ev_vehicles]
+
+			measure 'Total Registrations' = COUNTROWS(ev_vehicles)
+				formatString: #,0
+				lineageTag: 942463e5-20fd-4a26-9fdf-4f9b8619ca7c
+
+			measure 'WA Registrations' = CALCULATE([Total Registrations], ev_vehicles[IS_WA_REGISTRATION] = TRUE())
+				formatString: #,0
+				lineageTag: 11298d48-734d-4118-850a-e41920fc17df
+
+			measure 'Researched Range Count' = COUNT(ev_vehicles[ELECTRIC_RANGE])
+				formatString: #,0
+				lineageTag: 3061cd90-2431-4eec-974c-2a934e32ee0a
+
+			measure 'Unresearched Range Count' = [Total Registrations] - [Researched Range Count]
+				formatString: #,0
+				lineageTag: f5ed9b00-ed4f-43e1-b0c6-2a94b6b2bb17
+
+			measure 'Avg Researched Range' = AVERAGE(ev_vehicles[ELECTRIC_RANGE])
+				formatString: #,0.0
+				lineageTag: 43124e93-57db-4e0b-ade7-71c6887150d7
+
+			measure 'Median Researched Range' = MEDIAN(ev_vehicles[ELECTRIC_RANGE])
+				formatString: #,0
+				lineageTag: 52bb844f-df0d-4ea0-819a-22f1a6a1a2d8
+
+			measure 'Clearing 200 Miles' = CALCULATE([Total Registrations], ev_vehicles[ELECTRIC_RANGE] >= 200)
+				formatString: #,0
+				lineageTag: d9aa26b2-8c4f-4ccc-a3a6-33e5c4a2c367
+
+			measure '% Clearing 200 Miles' = DIVIDE([Clearing 200 Miles], [Researched Range Count])
+				formatString: 0.00%;-0.00%;0.00%
+				lineageTag: 0c7ae558-8d8d-4c63-bf4c-f25cbfabf8f3
+
+				changedProperty = Name
+
+				changedProperty = FormatString
+
+			measure 'Policy Threshold' = 200
+				formatString: 0
+				lineageTag: 3efa1113-8f7f-4d5c-bd59-a82f98ccbf8c
+
+			measure 'Min Sample' = 100
+				formatString: 0
+				lineageTag: 78f71801-0b29-4a15-9d5a-ffd1806ffde8
+
+			measure 'Recent Year Floor' = 2021
+				formatString: 0
+				lineageTag: b34a2579-3a84-44eb-9b35-1788904224e7
+
+			measure 'Range Coverage %' = DIVIDE([Researched Range Count], [Total Registrations])
+				lineageTag: 1a3d1b8d-6875-4996-8024-e140f2301b58
+
+				annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+			measure 'Unresearched Range %' = 1 - [Range Coverage %]
+				lineageTag: 6ff94cd0-4a84-4180-bd4a-75aae38a5dbc
+
+				annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+			measure 'Range vs Policy' = [Avg Researched Range] - [Policy Threshold]
+				lineageTag: e74b4a92-0b0a-432b-970c-0a172bf1f80d
+
+				annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+			measure 'Makes Evaluated' = VAR b = "Battery Electric Vehicle (BEV)" RETURN COUNTROWS(FILTER(VALUES(ev_vehicles[MAKE]), CALCULATE([Researched Range Count], ev_vehicles[EV_TYPE] = b) >= [Min Sample]))
+				formatString: 0
+				lineageTag: 060a770d-8672-4ef6-a4aa-f54de052c797
+
+			measure 'Makes Clearing Bar' = VAR b = "Battery Electric Vehicle (BEV)" RETURN COUNTROWS(FILTER(VALUES(ev_vehicles[MAKE]), CALCULATE([Researched Range Count], ev_vehicles[EV_TYPE] = b) >= [Min Sample] && CALCULATE([Avg Researched Range], ev_vehicles[EV_TYPE] = b) >= [Policy Threshold]))
+				formatString: 0
+				lineageTag: b9167d05-3130-4059-9237-3b5b5eb67a14
+
+			measure 'Compliance Summary' = COALESCE([Makes Clearing Bar], 0) & " of " & COALESCE([Makes Evaluated], 0) & " makes"
+				lineageTag: 7b4af1da-b654-4993-bde5-a9dd0dca9370
+
+			measure 'Makes Evaluated Recent' = VAR b = "Battery Electric Vehicle (BEV)" VAR f = [Recent Year Floor] RETURN COUNTROWS(FILTER(VALUES(ev_vehicles[MAKE]), CALCULATE([Researched Range Count], ev_vehicles[EV_TYPE] = b, ev_vehicles[MODEL_YEAR] >= f) >= [Min Sample]))
+				formatString: 0
+				lineageTag: a3955cf2-b953-4b15-b1c4-60ff978e7fc0
+
+			measure 'Makes Clearing Bar Recent' = VAR b = "Battery Electric Vehicle (BEV)" VAR f = [Recent Year Floor] RETURN COUNTROWS(FILTER(VALUES(ev_vehicles[MAKE]), CALCULATE([Researched Range Count], ev_vehicles[EV_TYPE] = b, ev_vehicles[MODEL_YEAR] >= f) >= [Min Sample] && CALCULATE([Avg Researched Range], ev_vehicles[EV_TYPE] = b, ev_vehicles[MODEL_YEAR] >= f) >= [Policy Threshold]))
+				formatString: 0
+				lineageTag: 0cb7bea8-e235-47ee-8362-18e4947926af
+
+			measure 'Compliance Summary Recent' = COALESCE([Makes Clearing Bar Recent], 0) & " of " & COALESCE([Makes Evaluated Recent], 0) & " makes"
+				lineageTag: 52aa8451-55dc-40c4-bda5-0b535d87996d
+
+			measure 'Recent Range Coverage %' = VAR f = [Recent Year Floor] RETURN CALCULATE(DIVIDE([Researched Range Count], [Total Registrations]), ev_vehicles[MODEL_YEAR] >= f)
+				lineageTag: 60fb9dee-6920-4748-90c5-597f0b6671ff
+
+				annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+			measure 'Coverage Band' = SWITCH(TRUE(), [Range Coverage %] >= 0.8, "High", [Range Coverage %] >= 0.5, "Medium", "Low")
+				lineageTag: f29ea2f8-ab15-41b8-aaaa-078ec30bfcee
+
+			measure 'Calculation Note' = "Averages exclude " & FORMAT([Unresearched Range Count], "#,0") & " registrations with no researched electric range value (" & FORMAT([Unresearched Range %], "0.0%") & " of records in scope)."
+				lineageTag: 765e1658-a1c0-4b72-8457-c6e7b87740f1
+
+			measure 'Bar Colour' = IF([Range vs Policy] >= 0, "#11567F", "#B9660A")
+				lineageTag: 4ca51718-bb92-40b8-b96d-54bea164d5cd
+
+			measure 'Recent BEV Coverage %' = VAR b = "Battery Electric Vehicle (BEV)" VAR f = [Recent Year Floor] RETURN DIVIDE(CALCULATE([Researched Range Count], ev_vehicles[EV_TYPE] = b, ev_vehicles[MODEL_YEAR] >= f), CALCULATE([Total Registrations], ev_vehicles[EV_TYPE] = b, ev_vehicles[MODEL_YEAR] >= f))
+				lineageTag: e857348f-5d26-4a74-a25e-d19d5bb30f54
+
+				annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+			measure 'Recent BEV Verdict' = IF([Recent BEV Coverage %] < 0.5, "Not answerable", COALESCE([Makes Clearing Bar Recent], 0) & " of " & COALESCE([Makes Evaluated Recent], 0) & " makes")
+				lineageTag: cd43017b-3ae1-4532-afdd-26c622be7acd
+
+			column VIN_1_10
+				dataType: string
+				isHidden
+				lineageTag: addfeddb-f652-41b7-b0f5-779329dd849f
+				sourceLineageTag: VIN_1_10
+				summarizeBy: none
+				sourceColumn: VIN_1_10
+
+				changedProperty = IsHidden
+
+				annotation SummarizationSetBy = Automatic
+
+			column COUNTY
+				dataType: string
+				lineageTag: 1a97355c-d3a9-4e84-a8bd-78e27cab05cc
+				sourceLineageTag: COUNTY
+				dataCategory: County
+				summarizeBy: none
+				sourceColumn: COUNTY
+
+				changedProperty = DataCategory
+
+				annotation SummarizationSetBy = Automatic
+
+			column CITY
+				dataType: string
+				lineageTag: bc150336-d05b-44d8-8c2f-32ad7c14e949
+				sourceLineageTag: CITY
+				dataCategory: City
+				summarizeBy: none
+				sourceColumn: CITY
+
+				changedProperty = DataCategory
+
+				annotation SummarizationSetBy = Automatic
+
+			column STATE
+				dataType: string
+				lineageTag: c61c8b3b-525c-44db-bea5-9d328bccee64
+				sourceLineageTag: STATE
+				summarizeBy: none
+				sourceColumn: STATE
+
+				annotation SummarizationSetBy = Automatic
+
+			column ZIP_CODE
+				dataType: string
+				lineageTag: ef2f68fe-caac-4384-86a4-3243c15a25ab
+				sourceLineageTag: ZIP_CODE
+				dataCategory: PostalCode
+				summarizeBy: none
+				sourceColumn: ZIP_CODE
+
+				changedProperty = DataCategory
+
+				annotation SummarizationSetBy = Automatic
+
+			column MODEL_YEAR
+				dataType: double
+				formatString: 0
+				lineageTag: 800bfd3a-8708-40c7-adfb-fc23a65edcec
+				sourceLineageTag: MODEL_YEAR
+				summarizeBy: none
+				sourceColumn: MODEL_YEAR
+
+				changedProperty = FormatString
+
+				annotation SummarizationSetBy = Automatic
+
+				annotation PBI_FormatHint = {"isDecimal":true}
+
+			column MAKE
+				dataType: string
+				lineageTag: 451d776e-b7aa-4e43-9ca8-a52fc38d39b7
+				sourceLineageTag: MAKE
+				summarizeBy: none
+				sourceColumn: MAKE
+
+				annotation SummarizationSetBy = Automatic
+
+			column MODEL
+				dataType: string
+				lineageTag: 4cb20fd2-44b7-4cda-aed5-ea1f4838566e
+				sourceLineageTag: MODEL
+				summarizeBy: none
+				sourceColumn: MODEL
+
+				annotation SummarizationSetBy = Automatic
+
+			column EV_TYPE
+				dataType: string
+				lineageTag: 093226b2-713b-44e6-bc1d-ee6752e3817b
+				sourceLineageTag: EV_TYPE
+				summarizeBy: none
+				sourceColumn: EV_TYPE
+
+				annotation SummarizationSetBy = Automatic
+
+			column CAFV_ELIGIBILITY
+				dataType: string
+				lineageTag: da911e1a-eb97-4b8f-b055-e05c83b1b158
+				sourceLineageTag: CAFV_ELIGIBILITY
+				summarizeBy: none
+				sourceColumn: CAFV_ELIGIBILITY
+
+				annotation SummarizationSetBy = Automatic
+
+			column ELECTRIC_RANGE
+				dataType: double
+				lineageTag: a8acba08-f320-4ab4-8f25-d1cb3682207d
+				sourceLineageTag: ELECTRIC_RANGE
+				summarizeBy: none
+				sourceColumn: ELECTRIC_RANGE
+
+				annotation SummarizationSetBy = Automatic
+
+				annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+			column LEGISLATIVE_DISTRICT
+				dataType: string
+				lineageTag: 28ab7280-544f-43c0-bb10-428cfc60d418
+				sourceLineageTag: LEGISLATIVE_DISTRICT
+				summarizeBy: none
+				sourceColumn: LEGISLATIVE_DISTRICT
+
+				annotation SummarizationSetBy = Automatic
+
+			column DOL_VEHICLE_ID
+				dataType: double
+				lineageTag: 9fd768f1-b7d5-4bfc-a789-e4038f24438b
+				sourceLineageTag: DOL_VEHICLE_ID
+				summarizeBy: none
+				sourceColumn: DOL_VEHICLE_ID
+
+				annotation SummarizationSetBy = Automatic
+
+				annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+			column LONGITUDE
+				dataType: double
+				lineageTag: eb63c9cb-8f88-4690-bfa7-c283e36df9bc
+				sourceLineageTag: LONGITUDE
+				dataCategory: Longitude
+				summarizeBy: none
+				sourceColumn: LONGITUDE
+
+				changedProperty = DataCategory
+
+				annotation SummarizationSetBy = Automatic
+
+				annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+			column LATITUDE
+				dataType: double
+				lineageTag: 915ec20f-3ecf-473c-b938-e98f5eb44c57
+				sourceLineageTag: LATITUDE
+				dataCategory: Latitude
+				summarizeBy: none
+				sourceColumn: LATITUDE
+
+				changedProperty = DataCategory
+
+				annotation SummarizationSetBy = Automatic
+
+				annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+			column ELECTRIC_UTILITY
+				dataType: string
+				lineageTag: fb38a34e-4705-412b-a7fa-05da43fe9f4b
+				sourceLineageTag: ELECTRIC_UTILITY
+				summarizeBy: none
+				sourceColumn: ELECTRIC_UTILITY
+
+				annotation SummarizationSetBy = Automatic
+
+			column CENSUS_TRACT_2020
+				dataType: double
+				lineageTag: ddf89786-f28d-469b-8200-7bf2f9b51e81
+				sourceLineageTag: CENSUS_TRACT_2020
+				summarizeBy: none
+				sourceColumn: CENSUS_TRACT_2020
+
+				annotation SummarizationSetBy = Automatic
+
+				annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+			column IS_WA_REGISTRATION
+				dataType: boolean
+				formatString: """TRUE"";""TRUE"";""FALSE"""
+				lineageTag: 16e2d799-8497-4c80-9d00-de0b93df6ef3
+				sourceLineageTag: IS_WA_REGISTRATION
+				summarizeBy: none
+				sourceColumn: IS_WA_REGISTRATION
+
+				annotation SummarizationSetBy = Automatic
+
+			partition ev_vehicles = entity
+				mode: directLake
+				source
+					entityName: ev_vehicles
+					expressionSource: 'DirectLake - ev_lakehouse'
+
+		expression 'DirectLake - ev_lakehouse' =
+				let
+				    Source = AzureStorage.DataLake("https://onelake.dfs.fabric.microsoft.com/ba90c4e5-8176-4989-883b-3eb4781bff61/1ee46b55-900a-4a53-ad18-95f0094e98e7", [HierarchicalNavigation=true])
+				in
+				    Source
+			lineageTag: d076cc14-c4af-43fd-8019-9ea634de734b
+
+			annotation PBI_IncludeFutureArtifacts = False
+
+		annotation __PBI_TimeIntelligenceEnabled = 1
+
+		annotation PBI_QueryOrder = ["DirectLake - ev_lakehouse"]
+
+		annotation __LastRPTime = 134314501476491864
+
+		annotation PBI_ProTooling = ["DirectLakeOnOneLakeInWeb","WebModelingEdit","TMDLView_Desktop","DaxQueryView_Desktop"]
+
