@@ -99,3 +99,7 @@ Setup instructions are in [SETUP.md](SETUP.md).
 **Forecasting.** Registrations by county and model year are a time series, so projecting adoption forward would let the demo inform siting decisions rather than only describe past adoption.
 
 **Deployment from source.** Snowflake can read this repository directly through a Git repository object, so a single deploy script could stand the whole environment up rather than running the files individually.
+
+**Governance Tags.** Masking is attached to a named column, so the PII tag exists but nothing keys off it. Tag-based masking would attach the policy to the tag instead, and any column classified as sensitive would inherit it.
+
+**Openflow for the unstructured layer.** The manuals are uploaded by hand today, and Openflow's connector-based ingestion with CDC is the natural fit for a document feed.
