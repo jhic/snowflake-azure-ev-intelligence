@@ -97,3 +97,5 @@ Setup instructions are in [SETUP.md](SETUP.md).
 **Write-back for the unresearched range records.** The pipeline discloses the 8,155 records with no researched range but has no way to resolve them, so a write-back path would let analysts record and audit those decisions.
 
 **Forecasting.** Registrations by county and model year are a time series, so projecting adoption forward would let the demo inform siting decisions rather than only describe past adoption.
+
+**Deployment from source.** Snowflake can read this repository directly through a Git repository object, so a single deploy script could stand the whole environment up rather than running the files individually.
